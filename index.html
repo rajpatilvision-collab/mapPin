@@ -3,159 +3,213 @@
 <head>
     <meta charset="UTF-8">
     <title>Accounts Map</title>
-   
     <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css">
     <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
     <script src="https://live.zwidgets.com/js-sdk/1.2/ZohoEmbededAppSDK.min.js"></script>
-
     <style>
-        body { margin: 0; }
+        body { margin: 0; padding: 0; }
         #map { width: 100%; height: 620px; }
-        /* Styling for custom blue markers */
-        .blue-marker {
-            background-color: blue;
-            border-radius: 50%;
-            width: 14px;
-            height: 14px;
-            border: 2px solid white;
-            box-shadow: 0 0 4px rgba(0,0,0,0.5);
-        }
+        #debug { padding: 10px; background: #f0f0f0; font-family: monospace; }
     </style>
 </head>
 
 <body>
+<div id="debug">Initializing...</div>
 <div id="map"></div>
 
 <script>
-let map;
-let bounds;
+// Debug logging function
+function debug(msg) {
+    console.log(msg);
+    document.getElementById('debug').innerHTML += '<br>' + msg;
+}
 
-ZOHO.embeddedApp.on("PageLoad", function () {
-    initMap();
-    loadAccounts();
-});
+debug("Script starting...");
 
-ZOHO.embeddedApp.init();
+// Initialize map first (don't wait for Zoho)
+let map = L.map("map").setView([20, 0], 2);
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    attribution: "&copy; OpenStreetMap contributors"
+}).addTo(map);
 
-function initMap() {
-    map = L.map("map").setView([20, 0], 2);
+debug("Map initialized");
 
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        attribution: "&copy; OpenStreetMap contributors"
-    }).addTo(map);
+// Test if SDK is loaded
+debug("ZOHO object exists: " + (typeof ZOHO !== 'undefined'));
+debug("ZOHO.embeddedApp exists: " + (typeof ZOHO !== 'undefined' && ZOHO.embeddedApp));
 
-    bounds = L.latLngBounds();
+// Simple test marker to verify Leaflet works
+L.marker([20, 0]).addTo(map)
+    .bindPopup("Test marker - Leaflet works")
+    .openPopup();
+
+debug("Test marker added");
+
+// Wait for Zoho SDK
+if (typeof ZOHO !== 'undefined' && ZOHO.embeddedApp) {
+    debug("Initializing Zoho SDK...");
+    
+    ZOHO.embeddedApp.init().then(function() {
+        debug("Zoho SDK initialized successfully");
+        
+        // Listen for page load
+        ZOHO.embeddedApp.on("PageLoad", function(data) {
+            debug("PageLoad event fired");
+            loadAccounts();
+        });
+        
+        // Also try to load accounts immediately
+        setTimeout(function() {
+            debug("Attempting to load accounts...");
+            loadAccounts();
+        }, 1000);
+        
+    }).catch(function(error) {
+        debug("Zoho SDK init error: " + error);
+    });
+} else {
+    debug("ZOHO SDK not available - running in standalone mode");
+    // Simulate account loading for testing
+    setTimeout(function() {
+        debug("Adding sample markers for testing");
+        addSampleMarkers();
+    }, 2000);
 }
 
 function loadAccounts() {
-    let page = 1;
-    const perPage = 200;
-
-    function fetchPage() {
-        ZOHO.CRM.API.getRecords({
-            Entity: "Accounts",
-            page: page,
-            per_page: perPage,
-            // Add specific fields to fetch
-            fields: ["Account_Name", "Latitude", "Longitude", "Employees", "Number_of_Employees"]
-        }).then(function (response) {
-            console.log("API Response:", response);
-
-            if (!response.data || response.data.length === 0) {
-                console.log("No data returned");
-                return;
-            }
-
-            response.data.forEach(function (rec) {
-                console.log("Full Record:", rec);
-                
-                // Try different field names for latitude/longitude
-                const lat = parseFloat(rec.Latitude || rec.LATITUDE || 0);
-                const lng = parseFloat(rec.Longitude || rec.LONGITUDE || 0);
-                
-                console.log(`Lat: ${lat}, Lng: ${lng}`, rec);
-
-                if (isNaN(lat) || isNaN(lng) || lat === 0 || lng === 0) {
-                    console.log("Skipping - Invalid coordinates");
-                    return;
+    debug("loadAccounts() called");
+    
+    ZOHO.CRM.API.getAllRecords({
+        Entity: "Accounts",
+        per_page: 50,
+        page: 1
+    }).then(function(response) {
+        debug("API Response received");
+        console.log("Full API Response:", response);
+        
+        if (response && response.data) {
+            debug("Found " + response.data.length + " accounts");
+            
+            // Clear test markers
+            map.eachLayer(function(layer) {
+                if (layer instanceof L.Marker) {
+                    map.removeLayer(layer);
                 }
-
-                const name = rec.Account_Name || "No Name";
-                
-                // Try multiple possible field names for employees
-                const employees = rec.Employees || 
-                                 rec.Number_of_Employees || 
-                                 rec.NUMBEROFEMPLOYEES || 
-                                 "N/A";
-                
-                console.log(`Adding marker: ${name}, Employees: ${employees}`);
-                
-                addMarker(lat, lng, name, employees);
             });
-
-            if (response.data.length === perPage) {
-                page++;
-                fetchPage();
-            } else if (bounds.isValid() && bounds.getNorthEast()) {
-                map.fitBounds(bounds, { padding: [40, 40] });
-            } else {
-                console.log("No valid bounds to fit");
+            
+            let markersAdded = 0;
+            let bounds = new L.LatLngBounds();
+            
+            response.data.forEach(function(account) {
+                debug("Processing account: " + (account.Account_Name || "Unknown"));
+                console.log("Account data:", account);
+                
+                // Try to get coordinates - check multiple possible field names
+                let lat, lng;
+                
+                // Check various possible field names
+                const latField = account.Latitude || account.LATITUDE || account.latitude;
+                const lngField = account.Longitude || account.LONGITUDE || account.longitude;
+                
+                if (latField && lngField) {
+                    lat = parseFloat(latField);
+                    lng = parseFloat(lngField);
+                    
+                    if (!isNaN(lat) && !isNaN(lng)) {
+                        const name = account.Account_Name || "Unknown Account";
+                        // Try multiple possible employee field names
+                        const employees = account.Employees || 
+                                         account.Number_of_Employees || 
+                                         account.NumberOfEmployees ||
+                                         account.NUMBEROFEMPLOYEES ||
+                                         "N/A";
+                        
+                        addMarker(lat, lng, name, employees);
+                        bounds.extend([lat, lng]);
+                        markersAdded++;
+                    } else {
+                        debug("Invalid coordinates for: " + (account.Account_Name || "Unknown"));
+                    }
+                } else {
+                    debug("No coordinates found for: " + (account.Account_Name || "Unknown"));
+                }
+            });
+            
+            debug("Added " + markersAdded + " markers");
+            
+            if (markersAdded > 0 && bounds.isValid()) {
+                map.fitBounds(bounds, { padding: [50, 50] });
             }
-        }).catch(function (error) {
-            console.error("API Error:", error);
-        });
-    }
-
-    fetchPage();
+        } else {
+            debug("No data in response");
+        }
+    }).catch(function(error) {
+        debug("API Error: " + error.message);
+        console.error("API Error details:", error);
+        
+        // Add sample data on error for testing
+        addSampleMarkers();
+    });
 }
 
 function addMarker(lat, lng, name, employees) {
-    // Create a custom blue icon
-    const blueIcon = L.divIcon({
-        className: 'blue-marker',
-        iconSize: [14, 14],
-        iconAnchor: [7, 7]
-    });
-
-    // Create marker with custom icon
-    const marker = L.marker([lat, lng], {
-        icon: blueIcon
-    }).addTo(map);
-
-    // Or use circleMarker if you prefer the circle style
-    /*
+    debug("Adding marker at: " + lat + ", " + lng + " - " + name);
+    
+    // Create blue circle marker
     const marker = L.circleMarker([lat, lng], {
-        radius: 7,
-        fillColor: "blue",
-        color: "white",
+        radius: 8,
+        fillColor: "#3388ff", // Blue color
+        color: "#ffffff",     // White border
         weight: 2,
         fillOpacity: 1
     }).addTo(map);
-    */
-
+    
     // Create popup content
     const popupContent = `
-        <div style="padding: 10px;">
-            <b>${escapeHtml(name)}</b><br>
-            <hr style="margin: 5px 0;">
-            Employees: ${escapeHtml(employees.toString())}<br>
-            Location: ${lat.toFixed(4)}, ${lng.toFixed(4)}
+        <div style="min-width: 150px; padding: 5px;">
+            <strong>${escapeHtml(name)}</strong><br>
+            <hr style="margin: 5px 0; border-color: #eee;">
+            <span style="color: #666;">Employees:</span> ${escapeHtml(employees.toString())}<br>
+            <small style="color: #999;">Location: ${lat.toFixed(4)}, ${lng.toFixed(4)}</small>
         </div>
     `;
-
+    
     marker.bindPopup(popupContent);
     
-    // Add to bounds for auto-zoom
-    bounds.extend([lat, lng]);
-    
-    // Optional: Add click event
-    marker.on('click', function() {
-        console.log(`Clicked: ${name} with ${employees} employees`);
+    // Optional: Add hover effect
+    marker.on('mouseover', function() {
+        this.openPopup();
     });
+    
+    return marker;
 }
 
-// Helper function to escape HTML
+function addSampleMarkers() {
+    debug("Adding sample markers");
+    
+    // Add some sample markers for testing
+    const samples = [
+        {lat: 40.7128, lng: -74.0060, name: "New York Office", employees: 150},
+        {lat: 51.5074, lng: -0.1278, name: "London Office", employees: 75},
+        {lat: 48.8566, lng: 2.3522, name: "Paris Office", employees: 50},
+        {lat: 35.6762, lng: 139.6503, name: "Tokyo Office", employees: 200},
+        {lat: 28.6139, lng: 77.2090, name: "Delhi Office", employees: 100}
+    ];
+    
+    let bounds = new L.LatLngBounds();
+    
+    samples.forEach(function(sample) {
+        addMarker(sample.lat, sample.lng, sample.name, sample.employees);
+        bounds.extend([sample.lat, sample.lng]);
+    });
+    
+    if (bounds.isValid()) {
+        map.fitBounds(bounds, { padding: [50, 50] });
+    }
+}
+
 function escapeHtml(text) {
+    if (typeof text !== 'string') return text;
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
