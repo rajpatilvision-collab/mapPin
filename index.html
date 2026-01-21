@@ -47,12 +47,10 @@ function loadAccounts() {
                 
                 if (!isNaN(lat) && !isNaN(lng)) {
                     const name = account.Account_Name || "Unknown Account";
-                    const employees = account.Employees || 
-                                     account.Number_of_Employees || 
-                                     account.NumberOfEmployees ||
-                                     "N/A";
+                    const city = account.City || "N/A";
+                    const price = account.Price || "0";
                     
-                    addMarker(lat, lng, name, employees);
+                    addMarker(lat, lng, name, city, price);
                     bounds.extend([lat, lng]);
                 }
             });
@@ -64,7 +62,7 @@ function loadAccounts() {
     });
 }
 
-function addMarker(lat, lng, name, employees) {
+function addMarker(lat, lng, name, city, price) {
     const marker = L.circleMarker([lat, lng], {
         radius: 8,
         fillColor: "#3388ff",
@@ -76,8 +74,8 @@ function addMarker(lat, lng, name, employees) {
     const popupContent = `
         <div style="min-width: 150px; padding: 5px;">
             <strong>${escapeHtml(name)}</strong><br>
-            <hr style="margin: 5px 0; border-color: #eee;">
-            Employees: ${escapeHtml(employees.toString())}
+            Employees: ${escapeHtml(city.toString())}
+            Price:${escapeHtml(price.toString())}
         </div>
     `;
     
