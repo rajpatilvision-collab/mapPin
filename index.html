@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Accounts Map</title>
+
+    <!-- Leaflet -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css">
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+    <!-- Zoho SDK -->
+    <script src="https://live.zwidgets.com/js-sdk/1.2/ZohoEmbededAppSDK.min.js"></script>
+
+    <style>
+        body { margin: 0; }
+        #map { width: 100%; height: 620px; }
+    </style>
+</head>
+
+<body>
+<div id="map"></div>
+
+<script>
+let map;
+let bounds;
+
+ZOHO.embeddedApp.on("PageLoad", function () {
+    initMap();
+    loadAccounts();
+});
+
+ZOHO.embeddedApp.init();
+
+function initMap() {
+    map = L.map("map").setView([20, 0], 2);
+
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: "&copy; OpenStreetMap contributors"
+    }).addTo(map);
+
+    bounds = L.latLngBounds();
+}
+
+// 🔹 Load Accounts records
+function loadAccounts() {
+
+    let page = 1;
+    const perPage = 200;
+
+    function fetchPage() {
+        ZOHO.CRM.API.getRecords({
+            Entity: "Accounts",
+            page: page,
+            per_page: perPage
+        }).then(function (response) {
+
+            if (!response.data || response.data.length === 0) return;
+
+            response.data.forEach(function (rec) {
+
+                console.log("Account Record:", rec); // 🔍 DEBUG
+
+                // 🔴 CHANGE THESE API NAMES
+                const lat = parseFloat(rec.Latitude);
+                const lng = parseFloat(rec.Longitude);
+
+                if (isNaN(lat) || isNaN(lng)) return;
+
+                const name = rec.Account_Name || "No Name";
+                const employees = rec.Employees || "N/A";
+
+                addMarker(lat, lng, name, employees);
+            });
+
+            if (response.data.length === perPage) {
+                page++;
+                fetchPage();
+            } else if (bounds.isValid()) {
+                map.fitBounds(bounds, { padding: [40, 40] });
+            }
+        });
+    }
+
+    fetchPage();
+}
+
+// 🔹 Marker function
+function addMarker(lat, lng, name, employees) {
+
+    const marker = L.circleMarker([lat, lng], {
+        radius: 7,
+        fillColor: "blue",
+        color: "white",
+        weight: 2,
+        fillOpacity: 1
+    }).addTo(map);
+
+    marker.bindPopup(`
+        <b>${name}</b><br>
+        Employees: ${employees}
+    `);
+
+    bounds.extend([lat, lng]);
+}
+</script>
+</body>
+</html>
+
+
