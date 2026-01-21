@@ -9,203 +9,83 @@
     <style>
         body { margin: 0; padding: 0; }
         #map { width: 100%; height: 620px; }
-        #debug { padding: 10px; background: #f0f0f0; font-family: monospace; }
     </style>
 </head>
 
 <body>
-<div id="debug">Initializing...</div>
 <div id="map"></div>
 
 <script>
-// Debug logging function
-function debug(msg) {
-    console.log(msg);
-    document.getElementById('debug').innerHTML += '<br>' + msg;
-}
+let map;
 
-debug("Script starting...");
+ZOHO.embeddedApp.on("PageLoad", function () {
+    initMap();
+    loadAccounts();
+});
 
-// Initialize map first (don't wait for Zoho)
-let map = L.map("map").setView([20, 0], 2);
-L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    attribution: "&copy; OpenStreetMap contributors"
-}).addTo(map);
+ZOHO.embeddedApp.init();
 
-debug("Map initialized");
-
-// Test if SDK is loaded
-debug("ZOHO object exists: " + (typeof ZOHO !== 'undefined'));
-debug("ZOHO.embeddedApp exists: " + (typeof ZOHO !== 'undefined' && ZOHO.embeddedApp));
-
-// Simple test marker to verify Leaflet works
-L.marker([20, 0]).addTo(map)
-    .bindPopup("Test marker - Leaflet works")
-    .openPopup();
-
-debug("Test marker added");
-
-// Wait for Zoho SDK
-if (typeof ZOHO !== 'undefined' && ZOHO.embeddedApp) {
-    debug("Initializing Zoho SDK...");
+function initMap() {
+    map = L.map("map").setView([20, 0], 2);
     
-    ZOHO.embeddedApp.init().then(function() {
-        debug("Zoho SDK initialized successfully");
-        
-        // Listen for page load
-        ZOHO.embeddedApp.on("PageLoad", function(data) {
-            debug("PageLoad event fired");
-            loadAccounts();
-        });
-        
-        // Also try to load accounts immediately
-        setTimeout(function() {
-            debug("Attempting to load accounts...");
-            loadAccounts();
-        }, 1000);
-        
-    }).catch(function(error) {
-        debug("Zoho SDK init error: " + error);
-    });
-} else {
-    debug("ZOHO SDK not available - running in standalone mode");
-    // Simulate account loading for testing
-    setTimeout(function() {
-        debug("Adding sample markers for testing");
-        addSampleMarkers();
-    }, 2000);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: "&copy; OpenStreetMap contributors"
+    }).addTo(map);
 }
 
 function loadAccounts() {
-    debug("loadAccounts() called");
-    
     ZOHO.CRM.API.getAllRecords({
         Entity: "Accounts",
-        per_page: 50,
-        page: 1
+        per_page: 200
     }).then(function(response) {
-        debug("API Response received");
-        console.log("Full API Response:", response);
-        
         if (response && response.data) {
-            debug("Found " + response.data.length + " accounts");
-            
-            // Clear test markers
-            map.eachLayer(function(layer) {
-                if (layer instanceof L.Marker) {
-                    map.removeLayer(layer);
-                }
-            });
-            
-            let markersAdded = 0;
             let bounds = new L.LatLngBounds();
             
             response.data.forEach(function(account) {
-                debug("Processing account: " + (account.Account_Name || "Unknown"));
-                console.log("Account data:", account);
+                const lat = parseFloat(account.Latitude || account.LATITUDE);
+                const lng = parseFloat(account.Longitude || account.LONGITUDE);
                 
-                // Try to get coordinates - check multiple possible field names
-                let lat, lng;
-                
-                // Check various possible field names
-                const latField = account.Latitude || account.LATITUDE || account.latitude;
-                const lngField = account.Longitude || account.LONGITUDE || account.longitude;
-                
-                if (latField && lngField) {
-                    lat = parseFloat(latField);
-                    lng = parseFloat(lngField);
+                if (!isNaN(lat) && !isNaN(lng)) {
+                    const name = account.Account_Name || "Unknown Account";
+                    const employees = account.Employees || 
+                                     account.Number_of_Employees || 
+                                     account.NumberOfEmployees ||
+                                     "N/A";
                     
-                    if (!isNaN(lat) && !isNaN(lng)) {
-                        const name = account.Account_Name || "Unknown Account";
-                        // Try multiple possible employee field names
-                        const employees = account.Employees || 
-                                         account.Number_of_Employees || 
-                                         account.NumberOfEmployees ||
-                                         account.NUMBEROFEMPLOYEES ||
-                                         "N/A";
-                        
-                        addMarker(lat, lng, name, employees);
-                        bounds.extend([lat, lng]);
-                        markersAdded++;
-                    } else {
-                        debug("Invalid coordinates for: " + (account.Account_Name || "Unknown"));
-                    }
-                } else {
-                    debug("No coordinates found for: " + (account.Account_Name || "Unknown"));
+                    addMarker(lat, lng, name, employees);
+                    bounds.extend([lat, lng]);
                 }
             });
             
-            debug("Added " + markersAdded + " markers");
-            
-            if (markersAdded > 0 && bounds.isValid()) {
+            if (bounds.isValid()) {
                 map.fitBounds(bounds, { padding: [50, 50] });
             }
-        } else {
-            debug("No data in response");
         }
-    }).catch(function(error) {
-        debug("API Error: " + error.message);
-        console.error("API Error details:", error);
-        
-        // Add sample data on error for testing
-        addSampleMarkers();
     });
 }
 
 function addMarker(lat, lng, name, employees) {
-    debug("Adding marker at: " + lat + ", " + lng + " - " + name);
-    
-    // Create blue circle marker
     const marker = L.circleMarker([lat, lng], {
         radius: 8,
-        fillColor: "#3388ff", // Blue color
-        color: "#ffffff",     // White border
+        fillColor: "#3388ff",
+        color: "#ffffff",
         weight: 2,
         fillOpacity: 1
     }).addTo(map);
     
-    // Create popup content
     const popupContent = `
         <div style="min-width: 150px; padding: 5px;">
             <strong>${escapeHtml(name)}</strong><br>
             <hr style="margin: 5px 0; border-color: #eee;">
-            <span style="color: #666;">Employees:</span> ${escapeHtml(employees.toString())}<br>
-            <small style="color: #999;">Location: ${lat.toFixed(4)}, ${lng.toFixed(4)}</small>
+            Employees: ${escapeHtml(employees.toString())}
         </div>
     `;
     
     marker.bindPopup(popupContent);
     
-    // Optional: Add hover effect
     marker.on('mouseover', function() {
         this.openPopup();
     });
-    
-    return marker;
-}
-
-function addSampleMarkers() {
-    debug("Adding sample markers");
-    
-    // Add some sample markers for testing
-    const samples = [
-        {lat: 40.7128, lng: -74.0060, name: "New York Office", employees: 150},
-        {lat: 51.5074, lng: -0.1278, name: "London Office", employees: 75},
-        {lat: 48.8566, lng: 2.3522, name: "Paris Office", employees: 50},
-        {lat: 35.6762, lng: 139.6503, name: "Tokyo Office", employees: 200},
-        {lat: 28.6139, lng: 77.2090, name: "Delhi Office", employees: 100}
-    ];
-    
-    let bounds = new L.LatLngBounds();
-    
-    samples.forEach(function(sample) {
-        addMarker(sample.lat, sample.lng, sample.name, sample.employees);
-        bounds.extend([sample.lat, sample.lng]);
-    });
-    
-    if (bounds.isValid()) {
-        map.fitBounds(bounds, { padding: [50, 50] });
-    }
 }
 
 function escapeHtml(text) {
